@@ -80,7 +80,7 @@ Dán 1 đoạn trích xuất log tiêu biểu từ file `docs/trace_waterfall.js
     "thought": "OpenAI phản hồi trực tiếp bằng văn bản (không cần gọi công cụ).",
     "output": "Giá hiện tại của cổ phiếu VIC là 42,500 VNĐ và chỉ số P/E của nó là 12.3, dưới mức 15. Do đó, tôi đã đặt lệnh mua 50 cổ phiếu VIC với giá 42,500 VNĐ/cp.\n\nThông tin giao dịch:\n- Lệnh mua: 50 cổ phiếu VIC\n- Giá mỗi cổ phiếu: 42,500 VNĐ\n- Tổng giá trị: 2,125,000 VNĐ\n\nLệnh mua đã được thực hiện thành công.",
     "latency_ms": 1439.42
-  },
+  }
 ]
 ```
 
