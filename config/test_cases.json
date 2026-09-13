@@ -1,0 +1,37 @@
+[
+  {
+    "id": "TC01",
+    "type": "direct_query",
+    "question": "Chào bạn, bạn có thể giới thiệu các chỉ số tài chính cơ bản mà nhà đầu tư nên quan tâm khi phân tích cổ phiếu không?",
+    "expected_behavior": "Chatbot trả lời trực tiếp từ System Prompt về kiến thức tài chính chung (P/E, P/B, ROE...), không cần gọi bất kỳ Tool nào.",
+    "complexity": "Low"
+  },
+  {
+    "id": "TC02",
+    "type": "single_tool_query",
+    "question": "Hãy tra cứu thông tin tài chính của cổ phiếu FPT.",
+    "expected_behavior": "Agent nhận diện nhu cầu tra cứu, tự động phát sinh Tool Call 'fetch_stock_info' với mã cổ phiếu FPT.",
+    "complexity": "Medium"
+  },
+  {
+    "id": "TC03",
+    "type": "action_tool",
+    "question": "Hãy đặt lệnh mua 100 cổ phiếu VNM với giá 75000 đồng.",
+    "expected_behavior": "Agent tự động phát sinh Tool Call 'place_order' với mã VNM, loại lệnh 'buy', số lượng 100, giá 75000.",
+    "complexity": "Medium"
+  },
+  {
+    "id": "TC04",
+    "type": "multi_step_reasoning",
+    "question": "Hãy tra cứu giá hiện tại của cổ phiếu VIC, nếu P/E dưới 15 thì đặt lệnh mua 50 cổ phiếu ở mức giá hiện tại.",
+    "expected_behavior": "Agent thực hiện chuỗi suy luận ReAct: Bước 1 gọi 'fetch_stock_info' lấy dữ liệu VIC, Bước 2 phân tích P/E rồi quyết định, Bước 3 gọi 'place_order' đặt lệnh mua với giá hiện tại.",
+    "complexity": "High"
+  },
+  {
+    "id": "TC05",
+    "type": "edge_case_handling",
+    "question": "Hãy tra cứu thông tin tài chính của cổ phiếu XYZ999.",
+    "expected_behavior": "Agent nhận kết quả NOT_FOUND từ Tool và đưa ra phản hồi lịch sự, chính xác không bịa đặt dữ liệu tài chính.",
+    "complexity": "Medium"
+  }
+]

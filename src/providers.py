@@ -6,6 +6,7 @@ Hỗ trợ Native Tool Calling và chuyển đổi linh hoạt qua biến môi t
 import os
 import sys
 import json
+import time
 from typing import Dict, Any, List
 from dotenv import load_dotenv
 
@@ -37,26 +38,32 @@ class MockOfflineProvider(BaseLLMProvider):
     def generate_with_tools(self, prompt: str, tools_schema: List[Dict[str, Any]], system_prompt: str = "") -> Dict[str, Any]:
         prompt_lower = prompt.lower()
         
-        # Mô phỏng nhận diện intent gọi Tool
-        if "sv2026001" in prompt_lower and "đặt lịch" in prompt_lower:
+        # Mô phỏng nhận diện intent gọi Tool cho đề tài Tài chính
+        if any(kw in prompt_lower for kw in ["đặt lệnh", "mua", "bán"]):
             return {
                 "type": "tool_call",
-                "tool_name": "schedule_appointment",
-                "arguments": {"student_id": "SV2026001", "datetime_str": "14:00 15/09/2026", "advisor_name": "PGS.TS Nguyễn Văn A"},
-                "thought": "Người dùng yêu cầu đặt lịch hẹn tư vấn cho sinh viên SV2026001. Tôi sẽ gọi tool schedule_appointment."
+                "tool_name": "place_order",
+                "arguments": {"ticker": "VNM", "order_type": "buy", "quantity": 100, "price": 75000},
+                "thought": "Người dùng yêu cầu đặt lệnh mua/bán cổ phiếu. Tôi sẽ gọi tool place_order."
             }
-        elif "sv2026001" in prompt_lower or "tra cứu" in prompt_lower:
+        elif any(kw in prompt_lower for kw in ["tra cứu", "thông tin", "fpt", "vnm", "vic"]):
+            # Trích xuất mã cổ phiếu từ prompt
+            ticker = "FPT"
+            for t in ["FPT", "VNM", "VIC"]:
+                if t.lower() in prompt_lower:
+                    ticker = t
+                    break
             return {
                 "type": "tool_call",
-                "tool_name": "academic_query",
-                "arguments": {"student_id": "SV2026001"},
-                "thought": "Người dùng muốn tra cứu thông tin học vụ của sinh viên SV2026001. Tôi sẽ gọi tool academic_query."
+                "tool_name": "fetch_stock_info",
+                "arguments": {"ticker": ticker},
+                "thought": f"Người dùng muốn tra cứu thông tin cổ phiếu {ticker}. Tôi sẽ gọi tool fetch_stock_info."
             }
         else:
             return {
                 "type": "text",
-                "content": f"[Mock Agent Response]: Xin chào! Quy chế học vụ VinUni yêu cầu sinh viên tích lũy tối thiểu 120 tín chỉ và duy trì GPA trên 2.0 để tốt nghiệp.",
-                "thought": "Câu hỏi chung về quy chế học vụ, trả lời trực tiếp không cần gọi Tool."
+                "content": "[Mock Agent Response]: Xin chào! Các chỉ số tài chính cơ bản gồm P/E (giá/lợi nhuận), P/B (giá/giá trị sổ sách), ROE (lợi nhuận trên vốn chủ sở hữu). P/E thấp có thể cho thấy cổ phiếu đang bị định giá thấp.",
+                "thought": "Câu hỏi chung về kiến thức tài chính, trả lời trực tiếp không cần gọi Tool."
             }
 
 
@@ -83,56 +90,64 @@ class GeminiProvider(BaseLLMProvider):
             print("ℹ️ [Gemini Provider]: Chưa tìm thấy GEMINI_API_KEY hợp lệ. Tự động chuyển sang Mock Offline.")
             return MockOfflineProvider().generate_with_tools(prompt, tools_schema, system_prompt)
         
-        try:
-            from google import genai
-            from google.genai import types
+        max_retries = 4
+        for attempt in range(max_retries + 1):
+            try:
+                from google import genai
+                from google.genai import types
 
-            client = genai.Client(api_key=self.api_key)
-            
-            # Chuẩn hóa function declarations cho Gemini SDK
-            function_declarations = []
-            for tool in tools_schema:
-                # Bỏ qua các tool schema chưa được định nghĩa hoàn chỉnh
-                if not tool.get("name") or not tool.get("parameters"):
+                client = genai.Client(api_key=self.api_key)
+                
+                # Chuẩn hóa function declarations cho Gemini SDK
+                function_declarations = []
+                for tool in tools_schema:
+                    # Bỏ qua các tool schema chưa được định nghĩa hoàn chỉnh
+                    if not tool.get("name") or not tool.get("parameters"):
+                        continue
+                    function_declarations.append({
+                        "name": tool["name"],
+                        "description": tool.get("description", ""),
+                        "parameters": tool.get("parameters", {})
+                    })
+
+                config = types.GenerateContentConfig(
+                    system_instruction=system_prompt if system_prompt else None,
+                    tools=[{"function_declarations": function_declarations}] if function_declarations else None,
+                    temperature=0.2
+                )
+
+                response = client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=config
+                )
+
+                # Kiểm tra xem Gemini có trả về Tool Call không
+                if response.function_calls:
+                    call = response.function_calls[0]
+                    args = dict(call.args) if hasattr(call, 'args') and call.args else {}
+                    return {
+                        "type": "tool_call",
+                        "tool_name": call.name,
+                        "arguments": args,
+                        "thought": f"Gemini quyết định gọi công cụ '{call.name}' với tham số: {json.dumps(args, ensure_ascii=False)}"
+                    }
+                else:
+                    return {
+                        "type": "text",
+                        "content": response.text or "",
+                        "thought": "Gemini phản hồi trực tiếp bằng văn bản (không cần gọi công cụ)."
+                    }
+
+            except Exception as e:
+                error_str = str(e)
+                if "429" in error_str and attempt < max_retries:
+                    wait_time = 6 * (attempt + 1)
+                    print(f"⏳ [Gemini Rate Limit]: Đợi {wait_time}s trước khi thử lại (lần {attempt + 1}/{max_retries})...")
+                    time.sleep(wait_time)
                     continue
-                function_declarations.append({
-                    "name": tool["name"],
-                    "description": tool.get("description", ""),
-                    "parameters": tool.get("parameters", {})
-                })
-
-            config = types.GenerateContentConfig(
-                system_instruction=system_prompt if system_prompt else None,
-                tools=[{"function_declarations": function_declarations}] if function_declarations else None,
-                temperature=0.2
-            )
-
-            response = client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=config
-            )
-
-            # Kiểm tra xem Gemini có trả về Tool Call không
-            if response.function_calls:
-                call = response.function_calls[0]
-                args = dict(call.args) if hasattr(call, 'args') and call.args else {}
-                return {
-                    "type": "tool_call",
-                    "tool_name": call.name,
-                    "arguments": args,
-                    "thought": f"Gemini quyết định gọi công cụ '{call.name}' với tham số: {json.dumps(args, ensure_ascii=False)}"
-                }
-            else:
-                return {
-                    "type": "text",
-                    "content": response.text or "",
-                    "thought": "Gemini phản hồi trực tiếp bằng văn bản (không cần gọi công cụ)."
-                }
-
-        except Exception as e:
-            print(f"⚠️ [Gemini API Warning]: Không thể kết nối live API ({str(e)}). Tự động fallback về Mock.")
-            return MockOfflineProvider().generate_with_tools(prompt, tools_schema, system_prompt)
+                print(f"⚠️ [Gemini API Warning]: Không thể kết nối live API ({error_str}). Tự động fallback về Mock.")
+                return MockOfflineProvider().generate_with_tools(prompt, tools_schema, system_prompt)
 
 
 class OpenAIProvider(BaseLLMProvider):
